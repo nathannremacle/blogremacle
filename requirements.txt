@@ -4,3 +4,4 @@ google-genai
 markdown
 beautifulsoup4
 Pillow
+beautifulsoup4
