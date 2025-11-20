@@ -120,9 +120,12 @@ def fetch_trending_topic():
         except: continue
     
     random.shuffle(articles)
+    # CORRECTION DU BUG ICI : On prépare la string AVANT de la mettre dans le f-string
+    articles_list_text = "\n".join(articles[:15])
+    
     prompt = f"""
     Analyse ces articles tech :
-    {"\n".join(articles[:15])}
+    {articles_list_text}
     
     Sélectionne le sujet le plus "Ingénierie Hardcore" (pas de gadget grand public).
     Réponds en JSON : {{ "title": "Titre FR Expert", "original_link": "url", "summary": "résumé technique", "keywords": "tags" }}
