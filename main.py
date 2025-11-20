@@ -37,11 +37,16 @@ RSS_FEEDS = [
     "https://dev.to/feed/tag/engineering"
 ]
 
-# --- NOUVEAU : STYLES VISUELS ---
+# NOUVEAUX STYLES "PREMIUM"
 VISUAL_STYLES = {
-    "photorealistic": "hyper-realistic photography, 8k resolution, depth of field, cinematic lighting, shot on Sony A7R IV",
-    "isometric": "3D isometric render, clean lines, blueprint aesthetic, orange and dark grey color palette, unreal engine 5, digital art",
-    "abstract": "abstract data visualization, glowing nodes, fiber optics, dark background, cyberpunk aesthetic, intricate details"
+    # Style 1 : Hyper-réalisme Tech (Look Apple/Hardware)
+    "photorealistic": "macro photography, shot on Sony A7R IV, 85mm lens, f/1.8, depth of field, brushed aluminum textures, frosted glass, volumetric lighting, global illumination, raytracing, 8k, ultra-detailed",
+    
+    # Style 2 : Schéma Technique Noble (Look Architecte/Blueprint)
+    "blueprint": "technical isometric schematic, white thin vector lines on dark matte navy blue background, glowing accent nodes, blueprint aesthetic, minimal, clean, no background noise, architectural visualization",
+    
+    # Style 3 : Abstrait "Data" (Look Cybersecurity/Cloud)
+    "abstract": "abstract 3d glass morphism, translucent materials, subsurface scattering, neon orange and teal lighting, dark background, octane render, cinema 4d, intricate geometric shapes"
 }
 
 # --- AGENT 1 : LE VEILLEUR ---
@@ -88,30 +93,39 @@ def fetch_trending_topic():
             "keywords": "AI"
         }
 
-# --- NOUVEAU : AGENT DIRECTEUR ARTISTIQUE ---
-def get_artistic_prompt(subject, style_key="isometric"):
+# --- AGENT DIRECTEUR ARTISTIQUE (V2 - MATÉRIAUX & LUMIÈRE) ---
+def get_artistic_prompt(subject, style_key="photorealistic"):
     """
-    Demande à Gemini de décrire l'image parfaite pour ce sujet.
+    Force Gemini à décrire des TEXTURES et de la LUMIÈRE, pas juste des objets.
     """
-    style_desc = VISUAL_STYLES.get(style_key, VISUAL_STYLES["isometric"])
+    # On récupère la base de style
+    style_desc = VISUAL_STYLES.get(style_key, VISUAL_STYLES["photorealistic"])
     
     prompt = f"""
-    Agis comme un photographe et artiste 3D expert.
-    Je veux générer une image pour un article intitulé : "{subject}".
+    Agis comme un photographe d'art et un expert en rendu 3D (Octane/Unreal).
     
-    Écris un prompt en ANGLAIS pour un générateur d'images (comme Midjourney).
-    Décris visuellement la scène. Ne mets PAS de texte dans l'image.
-    Concentre-toi sur : l'éclairage, les objets centraux, la texture.
+    OBJECTIF : Créer un prompt de génération d'image pour un article tech intitulé : "{subject}".
     
-    Style imposé : {style_desc}
+    RÈGLES STRICTES :
+    1. Ne décris PAS une scène générique (ex: pas de "homme devant un ordi"). Sois conceptuel.
+    2. Concentre-toi sur les MATÉRIAUX : mentionne "translucent glass", "matte metal", "glowing fiber optics".
+    3. Concentre-toi sur la LUMIÈRE : mentionne "cinematic lighting", "rim light", "volumetric fog".
+    4. Évite le look "cartoon" ou "plastique".
+    5. Style imposé à inclure à la fin : {style_desc}
     
-    Réponds UNIQUEMENT avec la description brute en anglais. Pas de guillemets.
+    Génère UNIQUEMENT le prompt en Anglais, brut, sans guillemets.
     """
     try:
-        response = client.models.generate_content(model=MODEL_NAME, contents=prompt)
+        # On baisse un peu la température pour qu'il soit plus rigoureux
+        response = client.models.generate_content(
+            model=MODEL_NAME, 
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=0.7)
+        )
         return response.text.strip()
     except:
-        return f"futuristic technology illustration about {subject}, {style_desc}"
+        return f"futuristic high-end tech device, macro shot, {style_desc}"
+
 
 # --- AGENT 2 : L'ARTISTE (Amélioré) ---
 def generate_image(base_subject, is_cover=True):
