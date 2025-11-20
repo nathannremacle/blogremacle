@@ -21,9 +21,36 @@ if not HASHNODE_TOKEN or not GOOGLE_API_KEY:
 
 # Configuration Gemini
 genai.configure(api_key=GOOGLE_API_KEY)
-# On utilise 1.5 Flash car il est rapide, a une grande fenêtre de contexte et est gratuit
-model = genai.GenerativeModel('gemini-1.5-flash')
-vision_model = genai.GenerativeModel('gemini-1.5-flash')
+
+# Fonction utilitaire pour trouver le bon nom de modèle
+def get_model_name():
+    try:
+        # On tente de lister les modèles pour voir ce qui est dispo
+        print("🔎 Recherche des modèles Gemini disponibles...")
+        available_models = [m.name for m in genai.list_models()]
+        # print(f"Modèles trouvés : {available_models}") # Décommenter pour debug complet
+        
+        # Priorité au Flash 1.5, sinon Pro 1.5, sinon Pro 1.0
+        if 'models/gemini-1.5-flash' in available_models:
+            return 'gemini-1.5-flash'
+        elif 'models/gemini-1.5-flash-latest' in available_models:
+            return 'gemini-1.5-flash-latest'
+        elif 'models/gemini-1.5-pro' in available_models:
+            print("⚠️ Flash non trouvé, bascule sur 1.5 Pro")
+            return 'gemini-1.5-pro'
+        else:
+            print("⚠️ Modèles 1.5 non trouvés, bascule sur gemini-pro (standard)")
+            return 'gemini-pro'
+    except Exception as e:
+        print(f"⚠️ Erreur lors du listing des modèles ({e}). On tente le défaut 'gemini-1.5-flash'.")
+        return 'gemini-1.5-flash'
+
+# Choix automatique du modèle
+MODEL_NAME = get_model_name()
+print(f"🤖 Utilisation du modèle : {MODEL_NAME}")
+
+model = genai.GenerativeModel(MODEL_NAME)
+vision_model = genai.GenerativeModel(MODEL_NAME)
 
 # --- LISTE DES SOURCES (INGÉNIERIE & TECH) ---
 RSS_FEEDS = [
