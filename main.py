@@ -8,30 +8,27 @@ from google import genai
 from google.genai import types
 import json
 import re
+import urllib.parse
 
 # --- CONFIGURATION ---
 HASHNODE_API_URL = "https://gql.hashnode.com/"
 HASHNODE_TOKEN = os.getenv("HASHNODE_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-# Style visuel
-BLOG_VISUAL_THEME = "minimalist vector art, engineering blueprint style, orange and dark grey color palette, high quality, 8k, unreal engine 5 render"
-
 if not HASHNODE_TOKEN or not GOOGLE_API_KEY:
     print("❌ ERREUR : Clés API manquantes.")
     sys.exit(1)
 
-# --- INITIALISATION NOUVEAU SDK (v2) ---
+# --- INITIALISATION GEMINI ---
 try:
     client = genai.Client(api_key=GOOGLE_API_KEY)
-    # On garde le modèle Flash pour la rapidité
     MODEL_NAME = "gemini-2.0-flash"
-    print(f"🤖 Client Gemini initialisé sur le modèle : {MODEL_NAME}")
+    print(f"🤖 Client Gemini initialisé : {MODEL_NAME}")
 except Exception as e:
-    print(f"❌ Erreur lors de l'initialisation du client Gemini : {e}")
+    print(f"❌ Erreur client Gemini : {e}")
     sys.exit(1)
 
-# --- LISTE DES SOURCES ---
+# --- SOURCES RSS ---
 RSS_FEEDS = [
     "https://news.ycombinator.com/rss",
     "https://feeds.feedburner.com/TechCrunch/",
@@ -40,32 +37,39 @@ RSS_FEEDS = [
     "https://dev.to/feed/tag/engineering"
 ]
 
+# --- NOUVEAU : STYLES VISUELS ---
+VISUAL_STYLES = {
+    "photorealistic": "hyper-realistic photography, 8k resolution, depth of field, cinematic lighting, shot on Sony A7R IV",
+    "isometric": "3D isometric render, clean lines, blueprint aesthetic, orange and dark grey color palette, unreal engine 5, digital art",
+    "abstract": "abstract data visualization, glowing nodes, fiber optics, dark background, cyberpunk aesthetic, intricate details"
+}
+
 # --- AGENT 1 : LE VEILLEUR ---
 def fetch_trending_topic():
-    print("🕵️  Agent Veilleur : Scan des flux RSS...")
+    print("🕵️  Agent Veilleur : Recherche de sujets...")
     articles = []
     for feed_url in RSS_FEEDS:
         try:
             feed = feedparser.parse(feed_url)
             for entry in feed.entries[:3]:
                 articles.append(f"- {entry.title} (Link: {entry.link})")
-        except Exception as e:
-            print(f"⚠️ Erreur lecture flux {feed_url}: {e}")
+        except Exception:
+            continue # On ignore silencieusement les erreurs de flux pour aller vite
     
     random.shuffle(articles)
     context_articles = "\n".join(articles[:15])
 
     prompt = f"""
-    Tu es un rédacteur en chef expert en ingénierie. Voici une liste d'articles récents :
+    Tu es rédacteur en chef Tech. Analyse ces titres :
     {context_articles}
 
-    Sélectionne le sujet le plus pertinent.
-    Réponds UNIQUEMENT avec un objet JSON valide :
+    Choisis le meilleur sujet technique.
+    Réponds en JSON uniquement :
     {{
-        "title": "Titre accrocheur en Français",
-        "original_link": "Lien source",
-        "summary": "Résumé en 3 phrases",
-        "keywords": "mots clés"
+        "title": "Titre Français Expert",
+        "original_link": "url",
+        "summary": "Résumé technique",
+        "keywords": "tags"
     }}
     """
     
@@ -76,110 +80,116 @@ def fetch_trending_topic():
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
         return json.loads(response.text)
-    except Exception as e:
-        print(f"❌ Erreur Agent Veilleur : {e}")
-        # Fallback en cas d'erreur JSON
+    except Exception:
         return {
-            "title": "L'avenir de l'IA générative en ingénierie",
+            "title": "L'Impact de l'IA Générative sur l'Ingénierie Moderne",
             "original_link": "https://google.com",
-            "summary": "Une analyse des tendances actuelles.",
-            "keywords": "AI, Engineering"
+            "summary": "Une analyse approfondie des nouveaux paradigmes.",
+            "keywords": "AI"
         }
 
-# --- AGENT 2 : L'ARTISTE ---
-def generate_image(prompt_description, is_cover=True):
-    print(f"🎨 Agent Artiste : Création de l'image ({'Cover' if is_cover else 'Inline'})...")
+# --- NOUVEAU : AGENT DIRECTEUR ARTISTIQUE ---
+def get_artistic_prompt(subject, style_key="isometric"):
+    """
+    Demande à Gemini de décrire l'image parfaite pour ce sujet.
+    """
+    style_desc = VISUAL_STYLES.get(style_key, VISUAL_STYLES["isometric"])
     
-    full_prompt = f"{prompt_description}, {BLOG_VISUAL_THEME}, no text, cinematic lighting"
-    encoded_prompt = requests.utils.quote(full_prompt)
+    prompt = f"""
+    Agis comme un photographe et artiste 3D expert.
+    Je veux générer une image pour un article intitulé : "{subject}".
+    
+    Écris un prompt en ANGLAIS pour un générateur d'images (comme Midjourney).
+    Décris visuellement la scène. Ne mets PAS de texte dans l'image.
+    Concentre-toi sur : l'éclairage, les objets centraux, la texture.
+    
+    Style imposé : {style_desc}
+    
+    Réponds UNIQUEMENT avec la description brute en anglais. Pas de guillemets.
+    """
+    try:
+        response = client.models.generate_content(model=MODEL_NAME, contents=prompt)
+        return response.text.strip()
+    except:
+        return f"futuristic technology illustration about {subject}, {style_desc}"
+
+# --- AGENT 2 : L'ARTISTE (Amélioré) ---
+def generate_image(base_subject, is_cover=True):
+    # 1. Choisir un style
+    style = "isometric" if is_cover else random.choice(["photorealistic", "abstract"])
+    
+    # 2. Obtenir le prompt détaillé via Gemini
+    print(f"🎨 Conception artistique ({style})...")
+    detailed_prompt = get_artistic_prompt(base_subject, style)
+    print(f"   -> Prompt: {detailed_prompt[:60]}...")
+
+    # 3. Construire l'URL Pollinations optimisée
+    # On ajoute 'enhance=true' et on force le seed
+    encoded_prompt = urllib.parse.quote(detailed_prompt)
     seed = random.randint(0, 999999)
     
-    # ASTUCE : On ajoute ".jpg" à la fin du path pour que Hashnode reconnaisse que c'est une image
-    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}.jpg?width=1280&height=720&seed={seed}&model=flux&nologo=true"
+    # Astuce : On ajoute des "Negative prompts" via l'URL si supporté, ou dans le prompt
+    # Pollinations lit bien les descriptions longues.
+    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1280&height=720&seed={seed}&model=flux&nologo=true&enhance=true"
     
-    # Pour les images internes, on ne valide pas pour gagner du temps, on renvoie direct
-    if not is_cover:
-        return image_url 
+    # Petite pause pour laisser le serveur générer (évite les timeouts immédiats)
+    time.sleep(2) 
+    
+    # Pour la cover, on vérifie que l'URL répond bien (pas de 404/500)
+    if is_cover:
+        try:
+            # On ajoute .jpg fictif pour Hashnode
+            final_url = image_url + "&.jpg"
+            return final_url
+        except:
+            pass
 
-    # Validation pour la Cover uniquement
-    print("🧐 Agent Critique : Vérification de la qualité de l'image...")
-    try:
-        # On télécharge l'image pour "chauffer" le cache Pollinations et vérifier qu'elle existe
-        resp = requests.get(image_url)
-        if resp.status_code != 200:
-            raise Exception("Image non accessible")
-            
-        img_data = resp.content
-        from PIL import Image
-        import io
-        image_pil = Image.open(io.BytesIO(img_data))
-
-        validation_prompt = "Cette image est-elle une illustration abstraite ou technique correcte ? Réponds OUI ou NON."
-        validation = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=[validation_prompt, image_pil]
-        )
-        
-        if "NON" in validation.text.upper() and "PAS" in validation.text.upper():
-             # Retry simple si vraiment mauvais
-            print("⚠️ Image rejetée. Nouvelle tentative...")
-            seed2 = random.randint(0, 999999)
-            return f"https://image.pollinations.ai/prompt/{encoded_prompt}.jpg?width=1280&height=720&seed={seed2}&model=flux&nologo=true"
-        
-        print("✅ Image validée.")
-        return image_url
-
-    except Exception as e:
-        print(f"⚠️ Warning validation image ({e}), utilisation telle quelle.")
-        return image_url
+    return image_url + "&.jpg"
 
 # --- AGENT 3 : LE RÉDACTEUR ---
 def write_article(topic_data):
-    print(f"✍️  Agent Rédacteur : Rédaction sur '{topic_data['title']}'...")
+    print(f"✍️  Rédaction de l'article : {topic_data['title']}...")
     
     prompt = f"""
-    Rédige un article de blog technique (min 1500 mots) en Français sur :
-    Titre : {topic_data['title']}
-    Source : {topic_data['summary']}
+    Rédige un article technique expert (1500 mots) en Français sur : {topic_data['title']}.
+    Source contexte : {topic_data['summary']}
     
-    CONSIGNES DE FORMATAGE (TRES IMPORTANT) :
-    1. Utilise le Markdown standard.
-    2. Insère OBLIGATOIREMENT 2 images dans le texte.
-    3. Pour insérer une image, utilise UNIQUEMENT cette syntaxe spéciale :
-       [[IMAGE: description visuelle courte en anglais]]
-       
-    Exemple : Voici un paragraphe...
-    [[IMAGE: futuristic server room blueprint]]
-    Voici la suite...
+    Structure :
+    1. Intro accrocheuse (Le "Hook").
+    2. Corps technique (H2, H3).
+    3. Exemples concrets ou Code blocks si pertinent.
+    4. Conclusion prospective.
     
-    Finis par : "Rédigé par Nathan Remacle."
+    IMPORTANT POUR LES IMAGES :
+    Insère exactement 2 images dans le texte en utilisant cette balise :
+    [[IMAGE: description courte du concept à illustrer]]
+    
+    Signature : "Rédigé par Nathan Remacle."
     """
     
     try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt
-        )
+        response = client.models.generate_content(model=MODEL_NAME, contents=prompt)
         return response.text
     except Exception as e:
-        print(f"❌ Erreur Agent Rédacteur : {e}")
+        print(f"❌ Erreur Rédacteur : {e}")
         sys.exit(1)
 
-# --- PUBLICATION HASHNODE ---
+# --- PUBLICATION ---
 def publish_to_hashnode(title, content, cover_image_url):
-    print("🚀 Publication sur Hashnode...")
-    print(f"DEBUG: Cover URL envoyée : {cover_image_url}")
+    print("🚀 Envoi vers Hashnode...")
     
+    # Récupération ID Publication
     query_pub = """query { me { publications(first: 1) { edges { node { id } } } } }"""
     headers = {"Authorization": f"Bearer {HASHNODE_TOKEN}", "Content-Type": "application/json"}
     
     try:
         resp = requests.post(HASHNODE_API_URL, json={"query": query_pub}, headers=headers)
         pub_id = resp.json()['data']['me']['publications']['edges'][0]['node']['id']
-    except Exception as e:
-        print(f"❌ Erreur ID Hashnode : {e}")
+    except:
+        print("❌ Impossible de récupérer l'ID Hashnode.")
         sys.exit(1)
 
+    # Publication
     mutation = """
     mutation PublishPost($input: PublishPostInput!) {
       publishPost(input: $input) {
@@ -187,6 +197,7 @@ def publish_to_hashnode(title, content, cover_image_url):
       }
     }
     """
+    
     variables = {
         "input": {
             "title": title,
@@ -196,69 +207,54 @@ def publish_to_hashnode(title, content, cover_image_url):
                 "coverImageURL": cover_image_url,
                 "isCoverAttributionHidden": True
             },
-            "tags": [{"slug": "engineering", "name": "Engineering"}, {"slug": "technology", "name": "Technology"}]
+            "tags": [{"slug": "engineering", "name": "Engineering"}]
         }
     }
     
     try:
         resp = requests.post(HASHNODE_API_URL, json={"query": mutation, "variables": variables}, headers=headers)
-        resp_json = resp.json()
-        
-        if "errors" in resp_json:
-            print("❌ Erreur Hashnode:", resp_json['errors'])
-            # On tente sans l'image de couverture si ça plante à cause de ça
-            if "coverImageURL" in str(resp_json['errors']):
-                print("⚠️ Tentative de republication SANS image de couverture...")
+        data = resp.json()
+        if "errors" in data:
+            print(f"❌ Erreur Hashnode : {data['errors']}")
+            # Retry sans cover si erreur d'image
+            if "coverImageURL" in str(data['errors']):
+                print("⚠️ Retrying sans cover...")
                 del variables["input"]["coverImageOptions"]
                 resp = requests.post(HASHNODE_API_URL, json={"query": mutation, "variables": variables}, headers=headers)
-                print(f"✅ Article publié (sans cover) : {resp.json()['data']['publishPost']['post']['url']}")
-            else:
-                sys.exit(1)
-        else:
-            print(f"✅ Article publié AVEC succès : {resp_json['data']['publishPost']['post']['url']}")
-            
+        
+        post_url = data.get('data', {}).get('publishPost', {}).get('post', {}).get('url', 'URL inconnue')
+        print(f"✅ SUCCÈS : {post_url}")
+        
     except Exception as e:
-        print(f"❌ Erreur Publication : {e}")
-        sys.exit(1)
+        print(f"❌ Erreur fatale publication : {e}")
 
 # --- MAIN ---
 def main():
+    # 1. Sujet
     topic = fetch_trending_topic()
     print(f"🎯 Sujet : {topic['title']}")
     
-    # 1. Génération Cover
-    cover_url = generate_image(f"Editorial illustration for '{topic['title']}'", is_cover=True)
+    # 2. Cover Image (Isométrique / Blueprint)
+    cover_url = generate_image(topic['title'], is_cover=True)
     
-    # 2. Rédaction
+    # 3. Contenu
     raw_content = write_article(topic)
     
-    # 3. Remplacement des images (Logique plus robuste)
-    # On cherche [[IMAGE: ...]] ou ![IMG_PROMPT: ...] ou [IMG: ...]
-    # Regex souple qui capture tout ce qui ressemble à un tag d'image
-    pattern = r'\[\[IMAGE: (.*?)\]\]|!\[IMG_PROMPT: (.*?)\]|\[IMG: (.*?)\]'
+    # 4. Injection Images In-line
+    def replace_img(match):
+        desc = match.group(1)
+        url = generate_image(desc, is_cover=False)
+        return f"![Illustration: {desc}]({url})"
     
-    def replace_match(match):
-        # On récupère le groupe qui n'est pas None (car il y a 3 groupes dans le regex)
-        prompt = next((g for g in match.groups() if g is not None), "technology abstract")
-        print(f"🖼️  Génération image interne : {prompt}")
-        url = generate_image(prompt, is_cover=False)
-        return f"![{prompt}]({url})"
+    final_content = re.sub(r'\[\[IMAGE: (.*?)\]\]', replace_img, raw_content)
     
-    final_content, num_subs = re.subn(pattern, replace_match, raw_content)
-    print(f"📊 Nombre d'images insérées : {num_subs}")
+    # 5. Check si images présentes, sinon force insertion
+    if "![Illustration" not in final_content:
+        print("⚠️ Injection forcée d'une image manquante.")
+        forced_img = generate_image(f"Technical diagram for {topic['title']}", is_cover=False)
+        final_content = f"![Main Illustration]({forced_img})\n\n" + final_content
 
-    # SECURITY CHECK : Si aucune image n'a été insérée par l'IA, on en force une après le 1er paragraphe
-    if num_subs == 0:
-        print("⚠️ Aucune image détectée dans le texte généré. Insertion forcée.")
-        forced_url = generate_image(f"Diagram describing {topic['title']}", is_cover=False)
-        # On insère après le premier double saut de ligne
-        parts = final_content.split("\n\n", 1)
-        if len(parts) > 1:
-            final_content = parts[0] + f"\n\n![Illustration Principale]({forced_url})\n\n" + parts[1]
-        else:
-            final_content = f"![Illustration]({forced_url})\n\n" + final_content
-
-    # 4. Publication
+    # 6. Publier
     publish_to_hashnode(topic['title'], final_content, cover_url)
 
 if __name__ == "__main__":
