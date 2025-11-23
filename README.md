@@ -2,7 +2,7 @@
 
 Ce projet est un pipeline CI/CD autonome (`Zero-Touch`) qui génère, illustre et publie des articles techniques de haute qualité sur un blog Hashnode. Il combine la puissance des LLM multimodaux (Gemini 2.0 Flash) et des modèles de génération d'images (Flux via Pollinations) pour maintenir un média technologique sans intervention humaine quotidienne.
 
-> **URL du Blog :** [https://remacle.hashnode.dev](https://remacle.hashnode.dev) (ou votre domaine)
+> **URL du Blog :** [https://remacle.hashnode.dev](https://remacle.hashnode.dev)
 
 -----
 
