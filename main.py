@@ -109,7 +109,7 @@ def get_best_image_for_topic(topic_data, is_cover=True):
             return real_url
     return generate_ai_image(topic_data['title'], is_cover)
 
-# --- 2. AGENT VEILLEUR (CORRIGÉ) ---
+# --- 2. AGENT VEILLEUR ---
 def fetch_trending_topic():
     print("🕵️  Agent Veilleur...")
     articles = []
@@ -140,12 +140,10 @@ def fetch_trending_topic():
         data = json.loads(res.text)
         
         # --- FIX DU BUG "TypeError: list indices..." ---
-        # Si Gemini renvoie une liste [{...}], on prend le premier élément.
         if isinstance(data, list):
             if len(data) > 0:
                 return data[0]
             else:
-                # Si la liste est vide, on force une erreur pour déclencher le fallback
                 raise ValueError("Liste JSON vide reçue de l'IA")
         
         return data
@@ -163,6 +161,9 @@ def fetch_trending_topic():
 def write_article(topic_data):
     print(f"✍️  Rédaction SEO Haute Qualité : {topic_data['title']}...")
     
+    # IMPORTANT : Remplace par ton vrai sous-domaine
+    MON_BLOG_URL = "https://remacle.hashnode.dev"
+    
     prompt = f"""
     Tu es un Ingénieur Senior et Expert SEO.
     Sujet : {topic_data['title']}
@@ -172,20 +173,21 @@ def write_article(topic_data):
 
     OPTIMISATION SEO ON-PAGE (OBLIGATOIRE) :
     1. Choisis un **Mot-Clé Principal** lié au sujet.
-    2. Utilise ce mot-clé dans le premier paragraphe (les 100 premiers mots).
+    2. Utilise ce mot-clé dans le premier paragraphe.
     3. Utilise des variantes sémantiques dans les titres H2.
-    4. Pour les images, sois descriptif dans le Alt Text (ex: "Schéma technique du processeur ARM" et pas juste "Processeur").
+
+    RÈGLES STRICTES :
+    1. Commence DIRECTEMENT par le contenu. Pas de "Voici l'article" ni "Titre :".
+    2. Utilise le Markdown (## Titres) et pas "H2:".
+    3. Insère la balise [[IMAGE: description détaillée]] au moins 3 fois.
 
     STRUCTURE :
-    1. **Introduction** : Accroche directe, définition du problème, mot-clé principal.
-    2. **Cœur Technique (3-4 Sections)** : Analyse profonde, jargon expliqué, comparaisons.
-    3. **Conclusion** : Synthèse et ouverture.
-
-    CONSIGNE IMAGES :
-    Insère cette balise 3 fois aux moments clés :
-    [[IMAGE: description visuelle précise pour un diagramme technique]]
-
-    TON : Expert, factuel, analytique. Pas de blabla commercial.
+    1. Introduction (Sans le mot "Introduction" comme titre)
+    2. Cœur Technique (3 sections ##)
+    3. Conclusion
+    4. Appel à l'action : "--- \n Pour approfondir, visitez le [Blog]({MON_BLOG_URL})."
+    
+    TON : Expert, factuel, analytique.
     Signature : "Par Nathan Remacle."
     """
     try:
@@ -193,68 +195,89 @@ def write_article(topic_data):
     except:
         sys.exit(1)
 
-# --- 4. LOGIQUE DE PLACEMENT INTELLIGENT ---
+# --- 4. AGENT CORRECTEUR (IA) ---
+def verify_and_clean_article(content):
+    print("👮 Agent Correcteur IA : Vérification...")
+    prompt = f"""
+    Agis comme un compilateur de code.
+    Entrée : Un article de blog.
+    Tâche : Supprimer tout texte conversationnel (ex: "Voici l'article", "Absolument", "Titre:").
+    Corriger le formatage Markdown des titres (ex: "H2 :" -> "## ").
+    
+    SI le texte est déjà propre, renvoie-le tel quel.
+    SINON, renvoie UNIQUEMENT le texte nettoyé.
+    
+    TEXTE :
+    {content}
+    """
+    try:
+        # Température 0 pour être robotique
+        res = client.models.generate_content(model=MODEL_NAME, contents=prompt, config=types.GenerateContentConfig(temperature=0.0))
+        return res.text.strip()
+    except: return content
+
+# --- 5. NETTOYEUR ULTIME (PYTHON REGEX) ---
+def final_force_clean(content):
+    """
+    C'est la sécurité finale. Même si l'IA se trompe, ce code Python
+    va brutalement nettoyer les erreurs connues.
+    """
+    print("🧹 Nettoyage Python Final (Karcher)...")
+    
+    lines = content.split('\n')
+    cleaned_lines = []
+    
+    for line in lines:
+        # 1. Supprime les phrases de politesse IA résiduelles
+        if any(bad_start in line for bad_start in ["Voici une version", "Absolument !", "Sure, here", "Here is the"]):
+            continue
+            
+        # 2. Supprime les labels explicites type "Titre :" ou "Introduction :"
+        line = re.sub(r'^(Titre|Title|Introduction|Conclusion)\s*:\s*', '', line)
+        
+        # 3. Corrige les "H2 :" ou "H2:" ou "**H2** :" en "## "
+        line = re.sub(r'^(\*\*|)?(H[1-6]|h[1-6])(\*\*|)?\s*:\s*', '## ', line)
+        
+        cleaned_lines.append(line)
+    
+    return "\n".join(cleaned_lines).strip()
+
+# --- 6. LOGIQUE DE PLACEMENT INTELLIGENT ---
 def smart_insert_images(content, topic_title):
-    """
-    Si l'IA a oublié les balises, on découpe le texte par chapitres (H2) 
-    et on insère des images contextuelles.
-    """
-    # 1. Si des balises existent déjà, on les traite
+    # Remplacement des balises existantes
     if "[[IMAGE:" in content:
         def replace_tag(match):
             desc = match.group(1)
             url = generate_ai_image(desc, is_cover=False)
-            return f"\n\n![Illustration: {desc}]({url})\n*Figure : {desc}*\n"
-        
-        new_content = re.sub(r'\[\[IMAGE: (.*?)\]\]', replace_tag, content)
-        return new_content
+            return f"\n\n![Figure: {desc}]({url})\n*Figure : {desc}*\n"
+        return re.sub(r'\[\[IMAGE: (.*?)\]\]', replace_tag, content)
 
-    # 2. SINON (Fallback Intelligent) : On cherche les titres H2 (##)
-    print("⚠️ Pas de balises images trouvées. Activation de l'injection intelligente...")
-    
+    # Fallback si IA a oublié
+    print("⚠️ Injection images forcée...")
     lines = content.split('\n')
-    final_lines = []
-    images_inserted = 0
-    
+    new_content = []
+    img_count = 0
     for line in lines:
-        final_lines.append(line)
-        
-        # Si on détecte un titre H2 (ex: "## 1. Architecture du Processeur")
-        # On insère une image JUSTE APRÈS le paragraphe suivant ce titre (pour pas casser le flux)
-        if line.strip().startswith("## ") and images_inserted < 3:
-            # On nettoie le titre pour en faire un prompt
-            section_title = line.replace("#", "").strip()
-            img_prompt = f"Technical diagram showing {section_title} in the context of {topic_title}"
-            
-            # On génère l'URL
-            url = generate_ai_image(img_prompt, is_cover=False)
-            
-            # On ajoute l'image Markdown
-            image_block = f"\n\n![Schéma : {section_title}]({url})\n*Figure : {section_title}*\n"
-            final_lines.append(image_block)
-            images_inserted += 1
-            
-    return "\n".join(final_lines)
+        new_content.append(line)
+        if line.startswith("## ") and img_count < 3:
+            section = line.replace("#", "").strip()
+            url = generate_ai_image(f"Tech diagram: {section} context {topic_title}", is_cover=False)
+            new_content.append(f"\n\n![Schéma: {section}]({url})\n*Figure : {section}*\n")
+            img_count += 1
+    return "\n".join(new_content)
 
-# --- 5. PUBLICATION ---
-
+# --- 7. SEO ET PUBLICATION ---
 def generate_seo_data(content, title):
-    """
-    Analyse l'article rédigé et génère les métadonnées pour Google.
-    """
     print("🔍 Optimisation SEO en cours...")
     prompt = f"""
-    Agis comme un expert SEO (Search Engine Optimization).
-    Voici un article de blog :
+    Agis comme un expert SEO.
     Titre : {title}
-    Début du contenu : {content[:500]}...
+    Début : {content[:500]}...
 
-    Génère un objet JSON (sans markdown) avec ces 3 champs optimisés pour le référencement :
-    1. "slug": Une URL courte, en minuscules, avec des tirets, sans accents (ex: "nouvelle-puce-nvidia-revolution").
-    2. "meta_title": Un titre pour Google (< 60 caractères), percutant, incluant le mot-clé principal.
-    3. "meta_description": Un résumé incitatif pour le clic (< 155 caractères), sans jargon excessif.
-
-    Réponds UNIQUEMENT le JSON.
+    Génère JSON (sans markdown) :
+    1. "slug": URL courte, minuscules, tirets (ex: "puce-nvidia").
+    2. "meta_title": Titre Google (< 60 car).
+    3. "meta_description": Résumé (< 155 car).
     """
     try:
         response = client.models.generate_content(
@@ -264,20 +287,15 @@ def generate_seo_data(content, title):
         )
         return json.loads(response.text)
     except:
-        # Fallback basique si l'IA échoue
+        # Fallback basique
         from unicodedata import normalize
         slug = title.lower().replace(" ", "-")
         slug = re.sub(r'[^a-z0-9-]', '', normalize('NFKD', slug).encode('ASCII', 'ignore').decode('utf-8'))
-        return {
-            "slug": slug[:50],
-            "meta_title": title[:60],
-            "meta_description": content[:150] + "..."
-        }
+        return {"slug": slug[:50], "meta_title": title[:60], "meta_description": content[:150] + "..."}
 
 def publish_to_hashnode(title, content, cover_url):
     print("🚀 Envoi Hashnode avec SEO...")
     
-    # 1. Génération des données SEO
     seo_data = generate_seo_data(content, title)
     
     query_pub = """query { me { publications(first: 1) { edges { node { id } } } } }"""
@@ -298,19 +316,14 @@ def publish_to_hashnode(title, content, cover_url):
             "title": title,
             "contentMarkdown": content,
             "publicationId": pub_id,
-            # --- SEO : NOUVEAUX CHAMPS ---
             "slug": seo_data['slug'],
             "metaTags": {
                 "title": seo_data['meta_title'],
                 "description": seo_data['meta_description'],
                 "image": cover_url
             },
-            # -----------------------------
             "coverImageOptions": {"coverImageURL": cover_url, "isCoverAttributionHidden": True},
-            "tags": [
-                {"slug": "engineering", "name": "Engineering"},
-                {"slug": "technology", "name": "Technology"}
-            ]
+            "tags": [{"slug": "engineering", "name": "Engineering"}, {"slug": "technology", "name": "Technology"}]
         }
     }
     
@@ -319,16 +332,14 @@ def publish_to_hashnode(title, content, cover_url):
         data = resp.json()
         if "errors" in data:
             print(f"⚠️ Erreur Hashnode : {data['errors']}")
-            # Retry sans cover si erreur spécifique à l'image
             if "coverImageURL" in str(data['errors']):
                 del variables["input"]["coverImageOptions"]
                 resp = requests.post(HASHNODE_API_URL, json={"query": mutation, "variables": variables}, headers=headers)
         
-        # On sécurise l'affichage du succès
         if 'data' in resp.json() and resp.json()['data']['publishPost']:
             print(f"✅ SUCCÈS : {resp.json()['data']['publishPost']['post']['url']}")
         else:
-            print("⚠️ Article publié mais URL non récupérée (Erreur partielle).")
+            print("⚠️ Article publié mais URL non récupérée.")
             
     except Exception as e:
         print(f"❌ Erreur: {e}")
@@ -342,13 +353,19 @@ def main():
     # 2. Cover (Hybride)
     cover_url = get_best_image_for_topic(topic, is_cover=True)
     
-    # 3. Rédaction
-    raw_content = write_article(topic)
+    # 3. Rédaction (IA Créative)
+    draft_content = write_article(topic)
     
-    # 4. Injection Intelligente des Images
-    final_content = smart_insert_images(raw_content, topic['title'])
+    # 4. Correction (IA Éditoriale - NOUVEAU)
+    cleaned_draft = verify_and_clean_article(draft_content)
+
+    # 5. Nettoyage Final (Python Karcher - NOUVEAU)
+    final_text_only = final_force_clean(cleaned_draft)
     
-    # 5. Publication
+    # 6. Injection Intelligente des Images (Sur texte propre)
+    final_content = smart_insert_images(final_text_only, topic['title'])
+    
+    # 7. Publication
     publish_to_hashnode(topic['title'], final_content, cover_url)
 
 if __name__ == "__main__":
