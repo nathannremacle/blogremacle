@@ -109,7 +109,7 @@ def get_best_image_for_topic(topic_data, is_cover=True):
             return real_url
     return generate_ai_image(topic_data['title'], is_cover)
 
-# --- 2. AGENT VEILLEUR ---
+# --- 2. AGENT VEILLEUR (CORRIGÉ) ---
 def fetch_trending_topic():
     print("🕵️  Agent Veilleur...")
     articles = []
@@ -120,7 +120,8 @@ def fetch_trending_topic():
         except: continue
     
     random.shuffle(articles)
-    # CORRECTION DU BUG ICI : On prépare la string AVANT de la mettre dans le f-string
+    
+    # Préparation du texte pour éviter l'erreur de f-string backslash
     articles_list_text = "\n".join(articles[:15])
     
     prompt = f"""
@@ -131,38 +132,61 @@ def fetch_trending_topic():
     Réponds en JSON : {{ "title": "Titre FR Expert", "original_link": "url", "summary": "résumé technique", "keywords": "tags" }}
     """
     try:
-        res = client.models.generate_content(model=MODEL_NAME, contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
-        return json.loads(res.text)
-    except:
-        return {"title": "L'évolution des semi-conducteurs", "original_link": "https://google.com", "summary": "Analyse de la loi de Moore.", "keywords": "Hardware"}
+        res = client.models.generate_content(
+            model=MODEL_NAME, 
+            contents=prompt, 
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        data = json.loads(res.text)
+        
+        # --- FIX DU BUG "TypeError: list indices..." ---
+        # Si Gemini renvoie une liste [{...}], on prend le premier élément.
+        if isinstance(data, list):
+            if len(data) > 0:
+                return data[0]
+            else:
+                # Si la liste est vide, on force une erreur pour déclencher le fallback
+                raise ValueError("Liste JSON vide reçue de l'IA")
+        
+        return data
+        
+    except Exception as e:
+        print(f"⚠️ Erreur ou Fallback activé : {e}")
+        return {
+            "title": "L'avenir des semi-conducteurs", 
+            "original_link": "https://google.com", 
+            "summary": "Analyse technique des limites physiques actuelles.", 
+            "keywords": "Hardware"
+        }
 
 # --- 3. AGENT RÉDACTEUR (MEGA PROMPT) ---
 def write_article(topic_data):
-    print(f"✍️  Rédaction Haute Qualité : {topic_data['title']}...")
+    print(f"✍️  Rédaction SEO Haute Qualité : {topic_data['title']}...")
     
     prompt = f"""
-    Tu es un Ingénieur Senior et Rédacteur en Chef.
-    Sujet : {topic_data['title']} ({topic_data['summary']}).
+    Tu es un Ingénieur Senior et Expert SEO.
+    Sujet : {topic_data['title']}
+    Contexte : {topic_data['summary']}
 
-    OBJECTIF : Rédiger l'article de référence francophone sur ce sujet.
-    Longueur : 1800 mots minimum.
+    OBJECTIF : Rédiger l'article de référence (1800 mots).
 
-    STRUCTURE OBLIGATOIRE :
-    1. **Introduction Contextuelle** : Problématique actuelle, pourquoi c'est critique maintenant.
-    2. **Cœur Technique (3 Sections)** : Analyse approfondie. Utilise du jargon technique précis (expliqué si besoin). Si c'est du software, mets du pseudo-code. Si c'est hardware, parle matériaux/architecture.
-    3. **Implications Ingénierie** : Défis d'implémentation, coûts, scalabilité.
-    4. **Conclusion Prospective** : Horizon 5-10 ans.
+    OPTIMISATION SEO ON-PAGE (OBLIGATOIRE) :
+    1. Choisis un **Mot-Clé Principal** lié au sujet.
+    2. Utilise ce mot-clé dans le premier paragraphe (les 100 premiers mots).
+    3. Utilise des variantes sémantiques dans les titres H2.
+    4. Pour les images, sois descriptif dans le Alt Text (ex: "Schéma technique du processeur ARM" et pas juste "Processeur").
 
-    CONSIGNE IMAGES (CRITIQUE) :
-    Tu DOIS illustrer tes propos. Insère la balise suivante exactement là où une image aiderait la compréhension (au moins 3 fois) :
-    [[IMAGE: description visuelle détaillée de ce qu'on doit voir]]
+    STRUCTURE :
+    1. **Introduction** : Accroche directe, définition du problème, mot-clé principal.
+    2. **Cœur Technique (3-4 Sections)** : Analyse profonde, jargon expliqué, comparaisons.
+    3. **Conclusion** : Synthèse et ouverture.
 
-    TON :
-    - Pas de "Dans cet article nous allons voir". Entre direct dans le sujet.
-    - Pas de phrases creuses type "C'est une révolution". Sois factuel et analytique.
-    - Utilise le Markdown (Gras, Listes, Citations).
-    
-    Signature finale : "Par Nathan Remacle."
+    CONSIGNE IMAGES :
+    Insère cette balise 3 fois aux moments clés :
+    [[IMAGE: description visuelle précise pour un diagramme technique]]
+
+    TON : Expert, factuel, analytique. Pas de blabla commercial.
+    Signature : "Par Nathan Remacle."
     """
     try:
         return client.models.generate_content(model=MODEL_NAME, contents=prompt).text
@@ -213,10 +237,52 @@ def smart_insert_images(content, topic_title):
     return "\n".join(final_lines)
 
 # --- 5. PUBLICATION ---
+
+def generate_seo_data(content, title):
+    """
+    Analyse l'article rédigé et génère les métadonnées pour Google.
+    """
+    print("🔍 Optimisation SEO en cours...")
+    prompt = f"""
+    Agis comme un expert SEO (Search Engine Optimization).
+    Voici un article de blog :
+    Titre : {title}
+    Début du contenu : {content[:500]}...
+
+    Génère un objet JSON (sans markdown) avec ces 3 champs optimisés pour le référencement :
+    1. "slug": Une URL courte, en minuscules, avec des tirets, sans accents (ex: "nouvelle-puce-nvidia-revolution").
+    2. "meta_title": Un titre pour Google (< 60 caractères), percutant, incluant le mot-clé principal.
+    3. "meta_description": Un résumé incitatif pour le clic (< 155 caractères), sans jargon excessif.
+
+    Réponds UNIQUEMENT le JSON.
+    """
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME, 
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        return json.loads(response.text)
+    except:
+        # Fallback basique si l'IA échoue
+        from unicodedata import normalize
+        slug = title.lower().replace(" ", "-")
+        slug = re.sub(r'[^a-z0-9-]', '', normalize('NFKD', slug).encode('ASCII', 'ignore').decode('utf-8'))
+        return {
+            "slug": slug[:50],
+            "meta_title": title[:60],
+            "meta_description": content[:150] + "..."
+        }
+
 def publish_to_hashnode(title, content, cover_url):
-    print("🚀 Envoi Hashnode...")
+    print("🚀 Envoi Hashnode avec SEO...")
+    
+    # 1. Génération des données SEO
+    seo_data = generate_seo_data(content, title)
+    
     query_pub = """query { me { publications(first: 1) { edges { node { id } } } } }"""
     headers = {"Authorization": f"Bearer {HASHNODE_TOKEN}", "Content-Type": "application/json"}
+    
     try:
         pub_id = requests.post(HASHNODE_API_URL, json={"query": query_pub}, headers=headers).json()['data']['me']['publications']['edges'][0]['node']['id']
     except: sys.exit(1)
@@ -226,24 +292,44 @@ def publish_to_hashnode(title, content, cover_url):
       publishPost(input: $input) { post { url } }
     }
     """
+    
     variables = {
         "input": {
             "title": title,
             "contentMarkdown": content,
             "publicationId": pub_id,
+            # --- SEO : NOUVEAUX CHAMPS ---
+            "slug": seo_data['slug'],
+            "metaTags": {
+                "title": seo_data['meta_title'],
+                "description": seo_data['meta_description'],
+                "image": cover_url
+            },
+            # -----------------------------
             "coverImageOptions": {"coverImageURL": cover_url, "isCoverAttributionHidden": True},
-            "tags": [{"slug": "engineering", "name": "Engineering"}]
+            "tags": [
+                {"slug": "engineering", "name": "Engineering"},
+                {"slug": "technology", "name": "Technology"}
+            ]
         }
     }
+    
     try:
         resp = requests.post(HASHNODE_API_URL, json={"query": mutation, "variables": variables}, headers=headers)
         data = resp.json()
         if "errors" in data:
-            # Retry sans cover si erreur spécifique
+            print(f"⚠️ Erreur Hashnode : {data['errors']}")
+            # Retry sans cover si erreur spécifique à l'image
             if "coverImageURL" in str(data['errors']):
                 del variables["input"]["coverImageOptions"]
                 resp = requests.post(HASHNODE_API_URL, json={"query": mutation, "variables": variables}, headers=headers)
-        print(f"✅ SUCCÈS : {resp.json()['data']['publishPost']['post']['url']}")
+        
+        # On sécurise l'affichage du succès
+        if 'data' in resp.json() and resp.json()['data']['publishPost']:
+            print(f"✅ SUCCÈS : {resp.json()['data']['publishPost']['post']['url']}")
+        else:
+            print("⚠️ Article publié mais URL non récupérée (Erreur partielle).")
+            
     except Exception as e:
         print(f"❌ Erreur: {e}")
 
