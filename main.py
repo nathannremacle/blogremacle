@@ -285,13 +285,30 @@ def generate_seo_data(content, title):
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-        return json.loads(response.text)
-    except:
-        # Fallback basique
+        data = json.loads(response.text)
+        
+        # --- CORRECTIF APPLIQUÉ ICI ---
+        # Si Gemini renvoie une liste [{...}], on prend le premier élément
+        if isinstance(data, list):
+            if len(data) > 0:
+                return data[0]
+            else:
+                raise ValueError("Liste SEO vide reçue")
+        
+        return data
+        
+    except Exception as e:
+        # Fallback de secours en cas d'erreur
         from unicodedata import normalize
+        # Création manuelle du slug
         slug = title.lower().replace(" ", "-")
         slug = re.sub(r'[^a-z0-9-]', '', normalize('NFKD', slug).encode('ASCII', 'ignore').decode('utf-8'))
-        return {"slug": slug[:50], "meta_title": title[:60], "meta_description": content[:150] + "..."}
+        
+        return {
+            "slug": slug[:50], 
+            "meta_title": title[:60], 
+            "meta_description": content[:150] + "..."
+        }
 
 def publish_to_hashnode(title, content, cover_url):
     print("🚀 Envoi Hashnode avec SEO...")
