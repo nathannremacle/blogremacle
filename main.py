@@ -87,6 +87,7 @@ def get_artistic_prompt(subject, style_key="photorealistic"):
     except:
         return f"tech illustration of {subject}, {style_desc}"
 
+# --- REMPLACE LA FONCTION generate_ai_image PAR CELLE-CI ---
 def generate_ai_image(subject, is_cover=True):
     style = "blueprint" if is_cover else "photorealistic"
     print(f"🎨 Génération IA ({style}) pour : {subject}")
@@ -95,10 +96,21 @@ def generate_ai_image(subject, is_cover=True):
     encoded_prompt = urllib.parse.quote(detailed_prompt)
     seed = random.randint(0, 999999)
     
-    # Flux Realism pour la qualité texture
-    url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1280&height=720&seed={seed}&model=flux-realism&nologo=true"
+    # 1. L'URL Source (Lente et lourde)
+    # On génère l'image chez Pollinations
+    source_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1280&height=720&seed={seed}&model=flux-realism&nologo=true"
+    
+    # 2. L'URL Optimisée (Rapide et légère)
+    # On passe l'URL source dans le proxy 'wsrv.nl' pour la compresser
+    # output=webp : Convertit en format WebP (très léger)
+    # q=80 : Qualité JPEG/WebP à 80% (bon compromis)
+    # url : L'adresse de l'image source encodée
+    final_url = f"https://wsrv.nl/?url={urllib.parse.quote(source_url)}&output=webp&q=80"
+    
+    # Pause technique pour laisser le temps au serveur de génération de répondre au premier ping
     time.sleep(2)
-    return url + "&.jpg"
+    
+    return final_url
 
 def get_best_image_for_topic(topic_data, is_cover=True):
     """Logique Hybride : Web Réel OU IA."""
