@@ -108,7 +108,7 @@ def generate_ai_image(subject, is_cover=True):
     final_url = f"https://wsrv.nl/?url={urllib.parse.quote(source_url)}&output=webp&q=80"
     
     # Pause technique pour laisser le temps au serveur de génération de répondre au premier ping
-    time.sleep(2)
+    time.sleep(20)
     
     return final_url
 
@@ -398,4 +398,5 @@ def main():
     publish_to_hashnode(topic['title'], final_content, cover_url)
 
 if __name__ == "__main__":
+
     main()
